@@ -48,10 +48,6 @@
 				};
 			};
 
-			tsadcc: tsadcc@f8018000 {
-				status = "okay";
-			};
-
 			pinctrl@fffff200 {
 				board {
 					pinctrl_qt1070_irq: qt1070_irq {
