@@ -66,6 +66,17 @@
 					non-removable;
 				};
 			};
+
+			spi1: spi@f0004000 {
+				status = "okay";
+				cs-gpios = <&pioA 14 0>, <0>, <0>, <0>;
+
+				spi@0 {
+					compatible = "spidev";
+					reg = <0>;
+					spi-max-frequency = <1000000>;
+				};
+			};
 		};
 
 		usb0: ohci@00600000 {
