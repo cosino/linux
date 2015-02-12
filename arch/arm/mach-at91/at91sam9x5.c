@@ -229,6 +229,8 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("usart", "f8028000.serial", &usart3_clk),
 	CLKDEV_CON_DEV_ID("usart", "f8040000.serial", &uart0_clk),
 	CLKDEV_CON_DEV_ID("usart", "f8044000.serial", &uart1_clk),
+	CLKDEV_CON_DEV_ID("can_clk", "f8000000.can", &can0_clk),
+	CLKDEV_CON_DEV_ID("can_clk", "f8004000.can", &can1_clk),
 	CLKDEV_CON_DEV_ID("t0_clk", "f8008000.timer", &tcb0_clk),
 	CLKDEV_CON_DEV_ID("t0_clk", "f800c000.timer", &tcb0_clk),
 	CLKDEV_CON_DEV_ID("mci_clk", "f0008000.mmc", &mmc0_clk),
@@ -253,6 +255,7 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("ehci_clk", "700000.ehci", &uhphs_clk),
 	CLKDEV_CON_DEV_ID("hclk", "500000.gadget", &utmi_clk),
 	CLKDEV_CON_DEV_ID("pclk", "500000.gadget", &udphs_clk),
+	CLKDEV_CON_DEV_ID(NULL, "f8034000.pwm", &pwm_clk),
 };
 
 /*
@@ -322,6 +325,11 @@ static void __init at91sam9x5_map_io(void)
 	at91_init_sram(0, AT91SAM9X5_SRAM_BASE, AT91SAM9X5_SRAM_SIZE);
 }
 
+static void __init at91sam9x5_initialize(void)
+{
+	at91_sysirq_mask_rtc(AT91SAM9X5_BASE_RTC);
+}
+
 /* --------------------------------------------------------------------
  *  Interrupt initialization
  * -------------------------------------------------------------------- */
@@ -329,4 +337,5 @@ static void __init at91sam9x5_map_io(void)
 AT91_SOC_START(at91sam9x5)
 	.map_io = at91sam9x5_map_io,
 	.register_clocks = at91sam9x5_register_clocks,
+	.init = at91sam9x5_initialize,
 AT91_SOC_END

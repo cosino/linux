@@ -1,6 +1,6 @@
 /*
  * sama5d3.dtsi - Device Tree Include file for SAMA5D3 family SoC
- *                applies to SAMA5D31, SAMA5D33, SAMA5D34, SAMA5D35 SoC
+ *                applies to SAMA5D31, SAMA5D33, SAMA5D34, SAMA5D35, SAMA5D36 SoC
  *
  *  Copyright (C) 2013 Atmel,
  *                2013 Ludovic Desroches <ludovic.desroches@atmel.com>
@@ -25,6 +25,7 @@
 		serial2 = &usart1;
 		serial3 = &usart2;
 		serial4 = &usart3;
+		serial5 = &uart0;
 		gpio0 = &pioA;
 		gpio1 = &pioB;
 		gpio2 = &pioC;
@@ -37,6 +38,7 @@
 		i2c2 = &i2c2;
 		ssc0 = &ssc0;
 		ssc1 = &ssc1;
+		pwm0 = &pwm0;
 	};
 	cpus {
 		#address-cells = <1>;
@@ -161,12 +163,29 @@
 				status = "disabled";
 			};
 
+			uart0: serial@f0024000 {
+				compatible = "atmel,at91sam9260-usart";
+				reg = <0xf0024000 0x100>;
+				interrupts = <16 IRQ_TYPE_LEVEL_HIGH 5>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&pinctrl_uart0>;
+				status = "disabled";
+			};
+
 			macb0: ethernet@f0028000 {
-				compatible = "cdns,pc302-gem", "cdns,gem";
+				compatible = "atmel,sama5d3-gem";
 				reg = <0xf0028000 0x100>;
 				interrupts = <34 IRQ_TYPE_LEVEL_HIGH 3>;
 				pinctrl-names = "default";
 				pinctrl-0 = <&pinctrl_macb0_data_rgmii &pinctrl_macb0_signal_rgmii>;
+				status = "disabled";
+			};
+
+			pwm0: pwm@f002c000 {
+				compatible = "atmel,sama5d3-pwm";
+				reg = <0xf002c000 0x300>;
+				interrupts = <28 IRQ_TYPE_LEVEL_HIGH 4>;
+				#pwm-cells = <3>;
 				status = "disabled";
 			};
 
@@ -181,30 +200,30 @@
 
 				lcd@f0030000 {
 					compatible = "atmel,at91sam9x5-lcd";
-					reg = <0xf0030000 0xff
-					       0xf0030600 0x3ff>;
+					reg = <0xf0030000 0x100
+					       0xf0030600 0x400>;
 					interrupts = <36 4 3>;
 					status = "disabled";
 				};
 
 				lcdovl1@f0030140 {
 					compatible = "atmel,at91sam9x5-lcd";
-					reg = <0xf0030140 0xff
-					       0xf0030a00 0x3ff>;
+					reg = <0xf0030140 0x100
+					       0xf0030a00 0x400>;
 					status = "disabled";
 				};
 
 				lcdovl2@f0030240 {
 					compatible = "atmel,at91sam9x5-lcd";
-					reg = <0xf0030240 0xff
-					       0xf0030e00 0x3ff>;
+					reg = <0xf0030240 0x100
+					       0xf0030e00 0x400>;
 					status = "disabled";
 				};
 
 				lcdheo1@f0030340 {
 					compatible = "atmel,sama5d3-heo";
-					reg = <0xf0030340 0xff
-					       0xf0031200 0x3ff>;
+					reg = <0xf0030340 0x100
+					       0xf0031200 0x400>;
 					interrupts = <36 4 3>;
 					status = "disabled";
 				};
@@ -340,6 +359,8 @@
 				dmas = <&dma1 2 AT91_DMA_CFG_PER_ID(11)>,
 				       <&dma1 2 AT91_DMA_CFG_PER_ID(12)>;
 				dma-names = "tx", "rx";
+				pinctrl-names = "default";
+				pinctrl-0 = <&pinctrl_i2c2>;
 				#address-cells = <1>;
 				#size-cells = <0>;
 				status = "disabled";
@@ -373,21 +394,29 @@
 			};
 
 			sha@f8034000 {
-				compatible = "atmel,sam9g46-sha";
+				compatible = "atmel,at91sam9g46-sha";
 				reg = <0xf8034000 0x100>;
 				interrupts = <42 IRQ_TYPE_LEVEL_HIGH 0>;
+				dmas = <&dma1 2 AT91_DMA_CFG_PER_ID(17)>;
+				dma-names = "tx";
 			};
 
 			aes@f8038000 {
-				compatible = "atmel,sam9g46-aes";
+				compatible = "atmel,at91sam9g46-aes";
 				reg = <0xf8038000 0x100>;
-				interrupts = <43 4 0>;
+				interrupts = <43 IRQ_TYPE_LEVEL_HIGH 0>;
+				dmas = <&dma1 2 AT91_DMA_CFG_PER_ID(18)>,
+				       <&dma1 2 AT91_DMA_CFG_PER_ID(19)>;
+				dma-names = "tx", "rx";
 			};
 
 			tdes@f803c000 {
-				compatible = "atmel,sam9g46-tdes";
+				compatible = "atmel,at91sam9g46-tdes";
 				reg = <0xf803c000 0x100>;
 				interrupts = <44 IRQ_TYPE_LEVEL_HIGH 0>;
+				dmas = <&dma1 2 AT91_DMA_CFG_PER_ID(20)>,
+				       <&dma1 2 AT91_DMA_CFG_PER_ID(21)>;
+				dma-names = "tx", "rx";
 			};
 
 			dma0: dma-controller@ffffe600 {
@@ -536,8 +565,16 @@
 					};
 				};
 
+				i2c2 {
+					pinctrl_i2c2: i2c2-0 {
+						atmel,pins =
+							<AT91_PIOA 18 AT91_PERIPH_B AT91_PINCTRL_NONE	/* TWD2 pin, conflicts with LCDDAT18, ISI_D2 */
+							 AT91_PIOA 19 AT91_PERIPH_B AT91_PINCTRL_NONE>; /* TWCK2 pin, conflicts with LCDDAT19, ISI_D3 */
+					};
+				};
+
 				isi {
-					pinctrl_isi: isi-0 {
+					pinctrl_isi_data_0_7: isi-0-data-0-7 {
 						atmel,pins =
 							<AT91_PIOA 16 AT91_PERIPH_C AT91_PINCTRL_NONE	/* PA16 periph C ISI_D0, conflicts with LCDDAT16 */
 							 AT91_PIOA 17 AT91_PERIPH_C AT91_PINCTRL_NONE	/* PA17 periph C ISI_D1, conflicts with LCDDAT17 */
@@ -549,13 +586,19 @@
 							 AT91_PIOA 23 AT91_PERIPH_C AT91_PINCTRL_NONE	/* PA23 periph C ISI_D7, conflicts with LCDDAT23, PWML1 */
 							 AT91_PIOC 30 AT91_PERIPH_C AT91_PINCTRL_NONE	/* PC30 periph C ISI_PCK, conflicts with UTXD0 */
 							 AT91_PIOA 31 AT91_PERIPH_C AT91_PINCTRL_NONE	/* PA31 periph C ISI_HSYNC, conflicts with TWCK0, UTXD1 */
-							 AT91_PIOA 30 AT91_PERIPH_C AT91_PINCTRL_NONE	/* PA30 periph C ISI_VSYNC, conflicts with TWD0, URXD1 */
-							 AT91_PIOC 29 AT91_PERIPH_C AT91_PINCTRL_NONE	/* PC29 periph C ISI_PD8, conflicts with URXD0, PWMFI2 */
+							 AT91_PIOA 30 AT91_PERIPH_C AT91_PINCTRL_NONE>;	/* PA30 periph C ISI_VSYNC, conflicts with TWD0, URXD1 */
+					};
+
+					pinctrl_isi_data_8_9: isi-0-data-8-9 {
+						atmel,pins =
+							<AT91_PIOC 29 AT91_PERIPH_C AT91_PINCTRL_NONE	/* PC29 periph C ISI_PD8, conflicts with URXD0, PWMFI2 */
 							 AT91_PIOC 28 AT91_PERIPH_C AT91_PINCTRL_NONE>;	/* PC28 periph C ISI_PD9, conflicts with SPI1_NPCS3, PWMFI0 */
 					};
-					pinctrl_isi_pck_as_mck: isi_pck_as_mck-0 {
+
+					pinctrl_isi_data_10_11: isi-0-data-10-11 {
 						atmel,pins =
-							<AT91_PIOD 31 AT91_PERIPH_B AT91_PINCTRL_NONE>;	/* PD31 periph B ISI_MCK */
+							<AT91_PIOC 27 AT91_PERIPH_C AT91_PINCTRL_NONE	/* PC27 periph C ISI_PD10, conflicts with SPI1_NPCS2, TWCK1 */
+							 AT91_PIOC 26 AT91_PERIPH_C AT91_PINCTRL_NONE>;	/* PC26 periph C ISI_PD11, conflicts with SPI1_NPCS1, TWD1 */
 					};
 				};
 
@@ -1076,7 +1119,8 @@
 				#address-cells = <1>;
 				#size-cells = <1>;
 				reg = <
-					0x70000000 0x10000000	/* NFC Command Registers */
+					0x70000000 0x08000000	/* NFC Command Registers */
+					0x78000000 0x4		/* NFC busy Registers */
 					0xffffc000 0x00000070	/* NFC HSMC regs */
 					0x00200000 0x00100000	/* NFC SRAM banks */
 					>;

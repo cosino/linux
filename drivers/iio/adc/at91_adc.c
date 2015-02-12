@@ -30,6 +30,7 @@
 #include <linux/iio/trigger.h>
 #include <linux/iio/trigger_consumer.h>
 #include <linux/iio/triggered_buffer.h>
+#include <linux/pinctrl/consumer.h>
 
 #include <mach/at91_adc.h>
 
@@ -71,7 +72,6 @@ enum atmel_adc_ts_type {
 };
 
 struct at91_adc_state {
-	struct clk		*adc_clk;
 	u32			adc_clk_rate;
 	u16			*buffer;
 	unsigned long		channels_mask;
@@ -115,6 +115,13 @@ struct at91_adc_state {
 
 	u16			ts_sample_period_val;
 	u32			ts_pressure_threshold;
+
+#ifdef CONFIG_PM
+	/* Two pin states - default, sleep */
+	struct pinctrl		*pinctrl;
+	struct pinctrl_state	*pins_default;
+	struct pinctrl_state	*pins_sleep;
+#endif
 };
 
 static irqreturn_t at91_adc_trigger_handler(int irq, void *p)
@@ -686,7 +693,7 @@ static int at91_adc_probe_dt(struct at91_adc_state *st,
 	st->caps = (struct at91_adc_caps *)
 		of_match_device(at91_adc_dt_ids, &pdev->dev)->data;
 
-	prop = 0;
+	prop = 1000000;	/* default adc-clock-rate is 1MHz. */
 	of_property_read_u32(node, "atmel,adc-clock-rate", &prop);
 	st->adc_clk_rate = prop;
 
@@ -929,6 +936,28 @@ static int at91_adc_probe(struct platform_device *pdev)
 		goto error_free_device;
 	}
 
+#ifdef CONFIG_PM
+	st->pinctrl = devm_pinctrl_get(&pdev->dev);
+	if (IS_ERR(st->pinctrl)) {
+		ret =  PTR_ERR(st->pinctrl);
+		goto error_free_device;
+	}
+
+	st->pins_default = pinctrl_lookup_state(st->pinctrl,
+						 PINCTRL_STATE_DEFAULT);
+	if (IS_ERR(st->pins_default)) {
+		dev_err(&pdev->dev, "could not get default pinstate\n");
+	} else {
+		if (pinctrl_select_state(st->pinctrl, st->pins_default))
+			dev_dbg(&pdev->dev, "could not set default pinstate\n");
+	}
+
+	st->pins_sleep = pinctrl_lookup_state(st->pinctrl,
+					       PINCTRL_STATE_SLEEP);
+	if (IS_ERR(st->pins_sleep))
+		dev_dbg(&pdev->dev, "could not get sleep pinstate\n");
+#endif
+
 	platform_set_drvdata(pdev, idev);
 
 	idev->dev.parent = &pdev->dev;
@@ -980,28 +1009,13 @@ static int at91_adc_probe(struct platform_device *pdev)
 		goto error_free_irq;
 	}
 
-	st->adc_clk = devm_clk_get(&pdev->dev, "adc_op_clk");
-	if (IS_ERR(st->adc_clk)) {
-		dev_err(&pdev->dev, "Failed to get the ADC clock.\n");
-		ret = PTR_ERR(st->adc_clk);
-		goto error_disable_clk;
-	}
-
-	ret = clk_prepare_enable(st->adc_clk);
-	if (ret) {
-		dev_err(&pdev->dev,
-			"Could not prepare or enable the ADC clock.\n");
-		goto error_disable_clk;
-	}
-
 	/*
 	 * Prescaler rate computation using the formula from the Atmel's
 	 * datasheet : ADC Clock = MCK / ((Prescaler + 1) * 2), ADC Clock being
 	 * specified by the electrical characteristics of the board.
 	 */
 	mstrclk = clk_get_rate(st->clk);
-	adc_clk = st->adc_clk_rate ?
-		st->adc_clk_rate : clk_get_rate(st->adc_clk);
+	adc_clk = st->adc_clk_rate;
 	adc_clk_khz = adc_clk / 1000;
 
 	dev_dbg(&pdev->dev, "Master clock is set as: %d Hz, adc_clk should set as: %d Hz\n",
@@ -1090,8 +1104,6 @@ error_iio_device_register:
 		at91_ts_unregister(st);
 	}
 error_disable_adc_clk:
-	clk_disable_unprepare(st->adc_clk);
-error_disable_clk:
 	clk_disable_unprepare(st->clk);
 error_free_irq:
 	free_irq(st->irq, idev);
@@ -1113,13 +1125,59 @@ static int at91_adc_remove(struct platform_device *pdev)
 	} else {
 		at91_ts_unregister(st);
 	}
-	clk_disable_unprepare(st->adc_clk);
 	clk_disable_unprepare(st->clk);
 	free_irq(st->irq, idev);
 	iio_device_free(idev);
 
 	return 0;
 }
+
+#ifdef CONFIG_PM_SLEEP
+static int at91_adc_suspend(struct device *dev)
+{
+	struct iio_dev *idev = platform_get_drvdata(to_platform_device(dev));
+	struct at91_adc_state *st = iio_priv(idev);
+	int ret;
+
+	if (!IS_ERR(st->pins_sleep)) {
+		ret = pinctrl_select_state(st->pinctrl,
+						st->pins_sleep);
+		if (ret)
+			dev_err(dev, "could not set pins to sleep state\n");
+	}
+
+	clk_disable_unprepare(st->clk);
+
+	return 0;
+}
+
+static int at91_adc_resume(struct device *dev)
+{
+	struct iio_dev *idev = platform_get_drvdata(to_platform_device(dev));
+	struct at91_adc_state *st = iio_priv(idev);
+	int ret;
+
+	/* First go to the default state */
+	if (!IS_ERR(st->pins_default)) {
+		ret = pinctrl_select_state(st->pinctrl,
+						st->pins_default);
+		if (ret)
+			dev_err(dev, "could not set pins to default state\n");
+	}
+	clk_prepare_enable(st->clk);
+
+	return 0;
+}
+
+static const struct dev_pm_ops at91_adc_pm_ops = {
+	.suspend = at91_adc_suspend,
+	.resume = at91_adc_resume,
+};
+
+#define AT91_ADC_PM_OPS (&at91_adc_pm_ops)
+#else
+#define AT91_ADC_PM_OPS NULL
+#endif
 
 #ifdef CONFIG_OF
 static struct at91_adc_caps at91sam9260_caps = {
@@ -1182,6 +1240,7 @@ static struct platform_driver at91_adc_driver = {
 	.driver = {
 		   .name = DRIVER_NAME,
 		   .of_match_table = of_match_ptr(at91_adc_dt_ids),
+		.pm = AT91_ADC_PM_OPS,
 	},
 };
 

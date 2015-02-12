@@ -44,6 +44,10 @@
 				};
 			};
 
+			ssc0: ssc@f0010000 {
+				status = "okay";
+			};
+
 			dbgu: serial@fffff200 {
 				status = "okay";
 			};
@@ -58,6 +62,23 @@
 			};
 
 			i2c0: i2c@f8010000 {
+				status = "okay";
+
+				wm8731: wm8731@1a {
+					compatible = "wm8731";
+					reg = <0x1a>;
+				};
+			};
+
+			isi: isi@f8048000 {
+				pinctrl-names = "default";
+				pinctrl-0 = <&pinctrl_isi_data_0_7 &pinctrl_isi_pck_as_mck &pinctrl_isi_power &pinctrl_isi_reset>;
+			};
+
+			adc0: adc@f804c000 {
+				atmel,adc-clock-rate = <1000000>;
+				atmel,adc-ts-wires = <4>;
+				atmel,adc-ts-pressure-threshold = <10000>;
 				status = "okay";
 			};
 
@@ -81,6 +102,23 @@
 						atmel,pins =
 							<AT91_PIOD 14 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP_DEGLITCH>;	/* PD14 gpio CD pin pull up and deglitch */
 					};
+				};
+
+				isi {
+					pinctrl_isi_pck_as_mck: isi_pck_as_mck-0 {
+						atmel,pins = <AT91_PIOC 15 AT91_PERIPH_C AT91_PINCTRL_NONE>; /* PC15 periph C ISI_MCK */
+					};
+
+					pinctrl_isi_reset: isi_reset-0 {
+						atmel,pins =
+							<AT91_PIOA 7 AT91_PERIPH_GPIO AT91_PINCTRL_NONE>;   /* PA7 gpio, conflicted with TXD2, SPI0_NPCS1 */
+					};
+
+					pinctrl_isi_power: isi_power-0 {
+						atmel,pins =
+							<AT91_PIOA 13 AT91_PERIPH_GPIO AT91_PINCTRL_NONE>; /* PA13 gpio, conflicted with SPI0_SPCK, MCI1_CK */
+					};
+
 				};
 			};
 
@@ -111,5 +149,20 @@
 		usb1: ehci@00700000 {
 			status = "okay";
 		};
+	};
+
+	sound {
+		compatible = "atmel,sam9x5-wm8731-audio";
+
+		atmel,model = "wm8731 @ AT91SAM9X5EK";
+
+		atmel,audio-routing =
+			"Headphone Jack", "RHPOUT",
+			"Headphone Jack", "LHPOUT",
+			"LLINEIN", "Line In Jack",
+			"RLINEIN", "Line In Jack";
+
+		atmel,ssc-controller = <&ssc0>;
+		atmel,audio-codec = <&wm8731>;
 	};
 };

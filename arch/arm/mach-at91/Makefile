@@ -2,7 +2,7 @@
 # Makefile for the linux kernel.
 #
 
-obj-y		:= irq.o gpio.o setup.o
+obj-y		:= irq.o gpio.o setup.o sysirq_mask.o
 obj-m		:=
 obj-n		:=
 obj-		:=
@@ -23,6 +23,10 @@ obj-$(CONFIG_SOC_AT91SAM9N12)	+= at91sam9n12.o
 obj-$(CONFIG_SOC_AT91SAM9X5)	+= at91sam9x5.o
 obj-$(CONFIG_SOC_AT91SAM9RL)	+= at91sam9rl.o
 obj-$(CONFIG_SOC_SAMA5D3)	+= sama5d3.o
+obj-$(CONFIG_SOC_SAMA5D4)	+= sama5d4.o atmel-firmware.o atmel-firmware-smc.o memalloc.o vdec_g1.o
+
+plus_sec := $(call as-instr,.arch_extension sec,+sec)
+AFLAGS_atmel-firmware-smc.o	:=-Wa,-march=armv7-a$(plus_sec)
 
 obj-$(CONFIG_ARCH_AT91RM9200)	+= at91rm9200_devices.o
 obj-$(CONFIG_ARCH_AT91SAM9260)	+= at91sam9260_devices.o
@@ -30,7 +34,6 @@ obj-$(CONFIG_ARCH_AT91SAM9261)	+= at91sam9261_devices.o
 obj-$(CONFIG_ARCH_AT91SAM9263)	+= at91sam9263_devices.o
 obj-$(CONFIG_ARCH_AT91SAM9RL)	+= at91sam9rl_devices.o
 obj-$(CONFIG_ARCH_AT91SAM9G45)	+= at91sam9g45_devices.o
-obj-$(CONFIG_ARCH_AT91X40)	+= at91x40.o at91x40_time.o
 
 # AT91RM9200 board-specific support
 obj-$(CONFIG_MACH_ONEARM)	+= board-1arm.o
@@ -89,14 +92,15 @@ obj-$(CONFIG_MACH_AT91SAM9_DT) += board-dt-sam9.o
 # SAMA5 board with device-tree
 obj-$(CONFIG_MACH_SAMA5_DT) += board-dt-sama5.o
 
-# AT91X40 board-specific support
-obj-$(CONFIG_MACH_AT91EB01)	+= board-eb01.o
-
 # Drivers
 obj-y				+= leds.o
 
 # Power Management
 obj-$(CONFIG_PM)		+= pm.o
+ifeq ($(CONFIG_CPU_V7), y)
+obj-$(CONFIG_PM)		+= sleep_sama5.o
+endif
+
 obj-$(CONFIG_AT91_SLOW_CLOCK)	+= pm_slowclock.o
 obj-$(CONFIG_CPU_IDLE)	+= cpuidle.o
 

@@ -13,26 +13,30 @@
 
  /* Map io */
 extern void __init at91_map_io(void);
+extern void __init at91_alt_map_io(void);
 extern void __init at91_init_sram(int bank, unsigned long base,
 				  unsigned int length);
 
  /* Processors */
 extern void __init at91rm9200_set_type(int type);
 extern void __init at91_initialize(unsigned long main_clock);
-extern void __init at91x40_initialize(unsigned long main_clock);
 extern void __init at91rm9200_dt_initialize(void);
 extern void __init at91_dt_initialize(void);
+extern void __init at91_alt_dt_initialize(void);
 
  /* Interrupts */
 extern void __init at91_init_irq_default(void);
 extern void __init at91_init_interrupts(unsigned int priority[]);
-extern void __init at91x40_init_interrupts(unsigned int priority[]);
 extern void __init at91_aic_init(unsigned int priority[],
 				 unsigned int ext_irq_mask);
 extern int  __init at91_aic_of_init(struct device_node *node,
 				    struct device_node *parent);
-extern int  __init at91_aic5_of_init(struct device_node *node,
+extern int  __init sama5d3_aic5_of_init(struct device_node *node,
 				    struct device_node *parent);
+extern int  __init sama5d4_aic5_of_init(struct device_node *node,
+				    struct device_node *parent);
+extern void __init at91_sysirq_mask_rtc(u32 rtc_base);
+extern void __init at91_sysirq_mask_rtt(u32 rtt_base);
 
 
  /* Timer */
@@ -40,12 +44,12 @@ extern void at91rm9200_ioremap_st(u32 addr);
 extern void at91rm9200_timer_init(void);
 extern void at91sam926x_ioremap_pit(u32 addr);
 extern void at91sam926x_pit_init(void);
-extern void at91x40_timer_init(void);
 
  /* Clocks */
 #ifdef CONFIG_AT91_PMC_UNIT
 extern int __init at91_clock_init(unsigned long main_clock);
 extern int __init at91_dt_clock_init(void);
+extern int __init at91_alt_dt_clock_init(void);
 #else
 static int inline at91_clock_init(unsigned long main_clock) { return 0; }
 #endif
@@ -86,3 +90,10 @@ extern int  __init at91_gpio_of_irq_setup(struct device_node *node,
 					  struct device_node *parent);
 
 extern u32 at91_get_extern_irq(void);
+
+/* Firmware */
+void __weak atmel_firmware_init(void) {}
+bool __weak atmel_firmware_is_registered(void)
+{
+	return false;
+}

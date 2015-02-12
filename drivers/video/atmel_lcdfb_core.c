@@ -348,12 +348,12 @@ static int atmel_lcdfb_set_par(struct fb_info *info)
 	bits_per_line = info->var.xres_virtual * info->var.bits_per_pixel;
 	info->fix.line_length = DIV_ROUND_UP(bits_per_line, 8);
 
+	/* Now, the LCDC core... */
+	sinfo->dev_data->setup_core(info);
+
 	/* Re-initialize the DMA engine... */
 	dev_dbg(info->device, "  * update DMA engine\n");
 	sinfo->dev_data->update_dma(info, &info->var);
-
-	/* Now, the LCDC core... */
-	sinfo->dev_data->setup_core(info);
 
 	if (sinfo->dev_data->start)
 		sinfo->dev_data->start(sinfo);
@@ -477,7 +477,7 @@ static int atmel_lcdfb_blank(int blank_mode, struct fb_info *info)
 		break;
 	case FB_BLANK_POWERDOWN:
 		if (sinfo->dev_data->stop)
-			sinfo->dev_data->stop(sinfo, 0);
+			sinfo->dev_data->stop(sinfo, ATMEL_LCDC_STOP_NOWAIT);
 		break;
 	default:
 		return -EINVAL;
@@ -555,9 +555,9 @@ int __atmel_lcdfb_probe(struct platform_device *pdev,
 	struct fb_info *info;
 	struct atmel_lcdfb_info *sinfo;
 	struct atmel_lcdfb_info *pdata_sinfo;
-	struct fb_videomode fbmode;
 	struct resource *regs = NULL, *clut = NULL;
 	struct resource *map = NULL;
+	const struct platform_device_id *id = platform_get_device_id(pdev);
 	int ret;
 
 	dev_dbg(dev, "%s BEGIN\n", __func__);
@@ -591,13 +591,13 @@ int __atmel_lcdfb_probe(struct platform_device *pdev,
 	sinfo->info = info;
 	sinfo->pdev = pdev;
 
-	strcpy(info->fix.id, sinfo->pdev->name);
 	info->flags = dev_data->fbinfo_flags;
 	info->pseudo_palette = sinfo->pseudo_palette;
 	info->fbops = &atmel_lcdfb_ops;
 
 	memcpy(&info->monspecs, sinfo->default_monspecs, sizeof(info->monspecs));
 	info->fix = atmel_lcdfb_fix;
+	strcpy(info->fix.id, sinfo->pdev->name);
 
 	/* Enable LCDC Clocks */
 	if (cpu_is_at91sam9261() || cpu_is_at91sam9g10()
@@ -613,7 +613,9 @@ int __atmel_lcdfb_probe(struct platform_device *pdev,
 		ret = PTR_ERR(sinfo->lcdc_clk);
 		goto put_bus_clk;
 	}
-	atmel_lcdfb_start_clock(sinfo);
+
+	if ((!id) || (id && !strcmp(id->name, "atmel_hlcdfb_base")))
+		atmel_lcdfb_start_clock(sinfo);
 
 	ret = fb_find_mode(&info->var, info, NULL, info->monspecs.modedb,
 			info->monspecs.modedb_len, info->monspecs.modedb,
@@ -727,12 +729,6 @@ int __atmel_lcdfb_probe(struct platform_device *pdev,
 		goto unregister_irqs;
 	}
 
-	/*
-	 * This makes sure that our colour bitfield
-	 * descriptors are correctly initialised.
-	 */
-	atmel_lcdfb_check_var(&info->var, info);
-
 	ret = fb_set_var(info, &info->var);
 	if (ret) {
 		dev_warn(dev, "unable to set display parameters\n");
@@ -749,10 +745,6 @@ int __atmel_lcdfb_probe(struct platform_device *pdev,
 		dev_err(dev, "failed to register framebuffer device: %d\n", ret);
 		goto reset_drvdata;
 	}
-
-	/* add selected videomode to modelist */
-	fb_var_to_videomode(&fbmode, &info->var);
-	fb_add_videomode(&fbmode, &info->modelist);
 
 	/* Power up the LCDC screen */
 	if (sinfo->atmel_lcdfb_power_control)
@@ -843,19 +835,70 @@ static const struct of_device_id atmel_lcdfb_bus_dt_ids[] = {
 	{ /* sentinel */ }
 };
 
+#ifdef CONFIG_PM
+	/* Two pin states - default, sleep */
+	struct pinctrl		*pinctrl;
+	struct pinctrl_state	*pins_default;
+	struct pinctrl_state	*pins_sleep;
+#endif
+
 static int atmel_lcdfb_bus_probe(struct platform_device *pdev)
 {
-	struct pinctrl *pinctrl;
 	struct device *dev = &pdev->dev;
 
-	pinctrl = devm_pinctrl_get_select_default(dev);
-	if (IS_ERR(pinctrl)) {
-		dev_err(dev, "Failed to request pinctrl\n");
+#ifdef CONFIG_PM
+	pinctrl = devm_pinctrl_get(dev);
+	if (IS_ERR(pinctrl))
 		return PTR_ERR(pinctrl);
+
+	pins_default = pinctrl_lookup_state(pinctrl, PINCTRL_STATE_DEFAULT);
+	if (IS_ERR(pins_default)) {
+		dev_err(dev, "could not get default pinstate\n");
+	} else {
+		if (pinctrl_select_state(pinctrl, pins_default))
+			dev_dbg(dev, "could not set default pinstate\n");
+	}
+
+	pins_sleep = pinctrl_lookup_state(pinctrl, PINCTRL_STATE_SLEEP);
+	if (IS_ERR(pins_sleep))
+		dev_dbg(dev, "could not get sleep pinstate\n");
+#endif
+
+	return 0;
+}
+
+#ifdef CONFIG_PM
+static int atmel_lcdfb_bus_suspend(struct platform_device *pdev,
+							pm_message_t mesg)
+{
+	int ret;
+
+	if (!IS_ERR(pins_sleep)) {
+		ret = pinctrl_select_state(pinctrl, pins_sleep);
+		if (ret)
+			dev_err(&pdev->dev, "could not set pins to sleep state\n");
 	}
 
 	return 0;
 }
+
+static int atmel_lcdfb_bus_resume(struct platform_device *pdev)
+{
+	int ret;
+
+	/* First go to the default state */
+	if (!IS_ERR(pins_default)) {
+		ret = pinctrl_select_state(pinctrl, pins_default);
+		if (ret)
+			dev_err(&pdev->dev, "could not set pins to default state\n");
+	}
+
+	return 0;
+}
+#else
+#define atmel_lcdfb_bus_suspend		NULL
+#define atmel_lcdfb_bus_resume		NULL
+#endif
 
 static struct platform_driver atmel_lcdfb_bus = {
 	.probe		= atmel_lcdfb_bus_probe,
@@ -864,6 +907,8 @@ static struct platform_driver atmel_lcdfb_bus = {
 		.owner	= THIS_MODULE,
 		.of_match_table	= of_match_ptr(atmel_lcdfb_bus_dt_ids),
 	},
+	.suspend	= atmel_lcdfb_bus_suspend,
+	.resume		= atmel_lcdfb_bus_resume,
 };
 
 static int __init atmel_lcdfb_bus_init(void)

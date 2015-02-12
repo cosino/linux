@@ -61,6 +61,9 @@ static int gpio_banks;
 #define DEGLITCH	(1 << 2)
 #define PULL_DOWN	(1 << 3)
 #define DIS_SCHMIT	(1 << 4)
+#define OUTPUT		(1 << 5)
+#define OUTPUT_VAL_SHIFT	6
+#define OUTPUT_VAL	(0x1 << OUTPUT_VAL_SHIFT)
 #define DEBOUNCE	(1 << 16)
 #define DEBOUNCE_VAL_SHIFT	17
 #define DEBOUNCE_VAL	(0x3fff << DEBOUNCE_VAL_SHIFT)
@@ -325,12 +328,28 @@ static void at91_mux_disable_interrupt(void __iomem *pio, unsigned mask)
 
 static unsigned at91_mux_get_pullup(void __iomem *pio, unsigned pin)
 {
-	return (readl_relaxed(pio + PIO_PUSR) >> pin) & 0x1;
+	return !((readl_relaxed(pio + PIO_PUSR) >> pin) & 0x1);
 }
 
 static void at91_mux_set_pullup(void __iomem *pio, unsigned mask, bool on)
 {
+	if (on)
+		writel_relaxed(mask, pio + PIO_PPDDR);
+
 	writel_relaxed(mask, pio + (on ? PIO_PUER : PIO_PUDR));
+}
+
+static bool at91_mux_get_output(void __iomem *pio, unsigned pin, bool *val)
+{
+	*val = (readl_relaxed(pio + PIO_ODSR) >> pin) & 0x1;
+	return (readl_relaxed(pio + PIO_OSR) >> pin) & 0x1;
+}
+
+static void at91_mux_set_output(void __iomem *pio, unsigned mask, bool is_on,
+				bool val)
+{
+	writel_relaxed(mask, pio + (val ? PIO_SODR : PIO_CODR));
+	writel_relaxed(mask, pio + (is_on ? PIO_OER : PIO_ODR));
 }
 
 static unsigned at91_mux_get_multidrive(void __iomem *pio, unsigned pin)
@@ -445,11 +464,14 @@ static void at91_mux_pio3_set_debounce(void __iomem *pio, unsigned mask,
 
 static bool at91_mux_pio3_get_pulldown(void __iomem *pio, unsigned pin)
 {
-	return (__raw_readl(pio + PIO_PPDSR) >> pin) & 0x1;
+	return !((__raw_readl(pio + PIO_PPDSR) >> pin) & 0x1);
 }
 
 static void at91_mux_pio3_set_pulldown(void __iomem *pio, unsigned mask, bool is_on)
 {
+	if (is_on)
+		__raw_writel(mask, pio + PIO_PUDR);
+
 	__raw_writel(mask, pio + (is_on ? PIO_PPDER : PIO_PPDDR));
 }
 
@@ -506,9 +528,9 @@ static int pin_check_config(struct at91_pinctrl *info, const char *name,
 	int mux;
 
 	/* check if it's a valid config */
-	if (pin->bank >= info->nbanks) {
-		dev_err(info->dev, "%s: pin conf %d bank_id %d >= nbanks %d\n",
-			name, index, pin->bank, info->nbanks);
+	if (pin->bank >= gpio_banks) {
+		dev_err(info->dev, "%s: pin conf %d bank_id %d >= gpio_banks %d\n",
+			name, index, pin->bank, gpio_banks);
 		return -EINVAL;
 	}
 
@@ -559,6 +581,7 @@ static int at91_pmx_enable(struct pinctrl_dev *pctldev, unsigned selector,
 	int i, ret;
 	unsigned mask;
 	void __iomem *pio;
+	bool irq_enabled;
 
 	dev_dbg(info->dev, "enable function %s group %s\n",
 		info->functions[selector].name, info->groups[group].name);
@@ -577,6 +600,7 @@ static int at91_pmx_enable(struct pinctrl_dev *pctldev, unsigned selector,
 		at91_pin_dbg(info->dev, pin);
 		pio = pin_to_controller(info, pin->bank);
 		mask = pin_to_mask(pin->pin);
+		irq_enabled = __raw_readl(pio + PIO_IMR) & mask;
 		at91_mux_disable_interrupt(pio, mask);
 		switch (pin->mux) {
 		case AT91_MUX_GPIO:
@@ -601,6 +625,8 @@ static int at91_pmx_enable(struct pinctrl_dev *pctldev, unsigned selector,
 		}
 		if (pin->mux)
 			at91_mux_gpio_disable(pio, mask);
+		if (irq_enabled)
+			__raw_writel(mask, pio + PIO_IER);
 	}
 
 	return 0;
@@ -712,6 +738,7 @@ static int at91_pinconf_get(struct pinctrl_dev *pctldev,
 	void __iomem *pio;
 	unsigned pin;
 	int div;
+	bool out;
 
 	dev_dbg(info->dev, "%s:%d, pin_id=%d, config=0x%lx", __func__, __LINE__, pin_id, *config);
 	pio = pin_to_controller(info, pin_to_bank(pin_id));
@@ -732,6 +759,9 @@ static int at91_pinconf_get(struct pinctrl_dev *pctldev,
 	if (info->ops->get_schmitt_trig && info->ops->get_schmitt_trig(pio, pin))
 		*config |= DIS_SCHMIT;
 
+	if (at91_mux_get_output(pio, pin, &out))
+		*config |= OUTPUT | (out << OUTPUT_VAL_SHIFT);
+
 	return 0;
 }
 
@@ -749,6 +779,8 @@ static int at91_pinconf_set(struct pinctrl_dev *pctldev,
 	if (config & PULL_UP && config & PULL_DOWN)
 		return -EINVAL;
 
+	at91_mux_set_output(pio, mask, config & OUTPUT,
+			    (config & OUTPUT_VAL) >> OUTPUT_VAL_SHIFT);
 	at91_mux_set_pullup(pio, mask, config & PULL_UP);
 	at91_mux_set_multidrive(pio, mask, config & MULTI_DRIVE);
 	if (info->ops->set_deglitch)
@@ -819,12 +851,14 @@ static int at91_pinctrl_mux_mask(struct at91_pinctrl *info,
 		return -EINVAL;
 	}
 
+	dev_dbg(info->dev, "mux-mask size = %d / %d\n", size, sizeof(*list));
 	size /= sizeof(*list);
-	if (!size || size % info->nbanks) {
-		dev_err(info->dev, "wrong mux mask array should be by %d\n", info->nbanks);
+	dev_dbg(info->dev, "mux-mask size = %d\n", size);
+	if (!size || size % gpio_banks) {
+		dev_err(info->dev, "wrong mux mask array should be by %d\n", gpio_banks);
 		return -EINVAL;
 	}
-	info->nmux = size / info->nbanks;
+	info->nmux = size / gpio_banks;
 
 	info->mux_mask = devm_kzalloc(info->dev, sizeof(u32) * size, GFP_KERNEL);
 	if (!info->mux_mask) {
@@ -960,7 +994,7 @@ static int at91_pinctrl_probe_dt(struct platform_device *pdev,
 
 	dev_dbg(&pdev->dev, "mux-mask\n");
 	tmp = info->mux_mask;
-	for (i = 0; i < info->nbanks; i++) {
+	for (i = 0; i < gpio_banks; i++) {
 		for (j = 0; j < info->nmux; j++, tmp++) {
 			dev_dbg(&pdev->dev, "%d:%d\t0x%x\n", i, j, tmp[0]);
 		}
@@ -1011,28 +1045,30 @@ static int at91_pinctrl_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+#if 0
 	/*
 	 * We need all the GPIO drivers to probe FIRST, or we will not be able
 	 * to obtain references to the struct gpio_chip * for them, and we
 	 * need this to proceed.
 	 */
-	for (i = 0; i < info->nbanks; i++) {
+	for (i = 0; i < gpio_banks; i++) {
 		if (!gpio_chips[i]) {
-			dev_warn(&pdev->dev, "GPIO chip %d not registered yet\n", i);
-			devm_kfree(&pdev->dev, info);
-			return -EPROBE_DEFER;
+			dev_info(&pdev->dev, "GPIO chip %d not registered\n", i);
+			//devm_kfree(&pdev->dev, info);
+			//return -EPROBE_DEFER;
 		}
 	}
+#endif
 
 	at91_pinctrl_desc.name = dev_name(&pdev->dev);
-	at91_pinctrl_desc.npins = info->nbanks * MAX_NB_GPIO_PER_BANK;
+	at91_pinctrl_desc.npins = gpio_banks * MAX_NB_GPIO_PER_BANK;
 	at91_pinctrl_desc.pins = pdesc =
 		devm_kzalloc(&pdev->dev, sizeof(*pdesc) * at91_pinctrl_desc.npins, GFP_KERNEL);
 
 	if (!at91_pinctrl_desc.pins)
 		return -ENOMEM;
 
-	for (i = 0 , k = 0; i < info->nbanks; i++) {
+	for (i = 0 , k = 0; i < gpio_banks; i++) {
 		for (j = 0; j < MAX_NB_GPIO_PER_BANK; j++, k++) {
 			pdesc->number = k;
 			pdesc->name = kasprintf(GFP_KERNEL, "pio%c%d", i + 'A', j);
@@ -1050,8 +1086,11 @@ static int at91_pinctrl_probe(struct platform_device *pdev)
 	}
 
 	/* We will handle a range of GPIO pins */
-	for (i = 0; i < info->nbanks; i++)
+	for (i = 0; i < gpio_banks; i++) {
+		if (!gpio_chips[i])
+			continue;
 		pinctrl_add_gpio_range(info->pctl, &gpio_chips[i]->range);
+	}
 
 	dev_info(&pdev->dev, "initialized AT91 pinctrl driver\n");
 
@@ -1160,10 +1199,9 @@ static void at91_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 	void __iomem *pio = at91_gpio->regbase;
 
 	for (i = 0; i < chip->ngpio; i++) {
-		unsigned pin = chip->base + i;
-		unsigned mask = pin_to_mask(pin);
+		unsigned pin_id = chip->base + i;
+		unsigned mask = pin_to_mask(pin_id % MAX_NB_GPIO_PER_BANK);
 		const char *gpio_label;
-		u32 pdsr;
 
 		gpio_label = gpiochip_is_requested(chip, i);
 		if (!gpio_label)
@@ -1172,11 +1210,13 @@ static void at91_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 		seq_printf(s, "[%s] GPIO%s%d: ",
 			   gpio_label, chip->label, i);
 		if (mode == AT91_MUX_GPIO) {
-			pdsr = readl_relaxed(pio + PIO_PDSR);
-
-			seq_printf(s, "[gpio] %s\n",
-				   pdsr & mask ?
-				   "set" : "clear");
+			seq_printf(s, "[gpio] ");
+			seq_printf(s, "%s ",
+				      readl_relaxed(pio + PIO_OSR) & mask ?
+				      "output" : "input");
+			seq_printf(s, "%s\n",
+				      readl_relaxed(pio + PIO_PDSR) & mask ?
+				      "set" : "clear");
 		} else {
 			seq_printf(s, "[periph %c]\n",
 				   mode + 'A' - 1);
@@ -1519,6 +1559,8 @@ static void at91_gpio_probe_fixup(void)
 
 	for (i = 0; i < gpio_banks; i++) {
 		at91_gpio = gpio_chips[i];
+		if (at91_gpio == NULL)
+			continue;
 
 		/*
 		 * GPIO controller are grouped on some SoC:
@@ -1643,6 +1685,7 @@ static int at91_gpio_probe(struct platform_device *pdev)
 
 	gpio_chips[alias_idx] = at91_chip;
 	gpio_banks = max(gpio_banks, alias_idx + 1);
+	dev_dbg(&pdev->dev, "gpio_banks = %d\n", gpio_banks);
 
 	at91_gpio_probe_fixup();
 

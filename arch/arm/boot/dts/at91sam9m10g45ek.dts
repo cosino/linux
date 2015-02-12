@@ -51,10 +51,6 @@
 				status = "okay";
 			};
 
-			i2c0: i2c@fff84000 {
-				status = "okay";
-			};
-
 			i2c1: i2c@fff88000 {
 				status = "okay";
 			};
@@ -105,6 +101,31 @@
 							 AT91_PIOD 29 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP>;	/* PD29 gpio WP pin pull up */
 					};
 				};
+
+				isi {
+					pinctrl_isi_pck_as_mck: isi_pck_as_mck-0 {
+						atmel,pins = <AT91_PIOB 31 AT91_PERIPH_B AT91_PINCTRL_NONE>;	/* PB31 periph B ISI_MCK (PCK1) */
+					};
+
+					pinctrl_isi_reset: isi_reset-0 {
+						atmel,pins =
+							<AT91_PIOD 12 AT91_PERIPH_GPIO AT91_PINCTRL_NONE>;	/* PD12 gpio, conflicted with TK1, PCK0 */
+					};
+
+					pinctrl_isi_power: isi_power-0 {
+						atmel,pins =
+							<AT91_PIOD 13 AT91_PERIPH_GPIO AT91_PINCTRL_NONE>;	/* PD13 gpio, conflicted with RK1 */
+					};
+
+				};
+
+				pwm0 {
+					pinctrl_pwm_leds: pwm-led {
+						atmel,pins =
+							<AT91_PIOD 0  AT91_PERIPH_B AT91_PINCTRL_PULL_UP	/* PD0 periph B */
+							 AT91_PIOD 31 AT91_PERIPH_B AT91_PINCTRL_PULL_UP>;	/* PD31 periph B */
+					};
+				};
 			};
 
 			spi0: spi@fffa4000{
@@ -117,9 +138,20 @@
 				};
 			};
 
+			ac97@fffac000 {
+				status = "okay";
+			};
+
 			usb2: gadget@fff78000 {
 				atmel,vbus-gpio = <&pioB 19 GPIO_ACTIVE_HIGH>;
 				status = "okay";
+			};
+
+			pwm0: pwm@fffb8000 {
+				status = "okay";
+
+				pinctrl-names = "default";
+				pinctrl-0 = <&pinctrl_pwm_leds>;
 			};
 		};
 
@@ -145,6 +177,20 @@
 			};
 		};
 
+		lcd_bus@00500000 {
+			status = "okay";
+
+			lcd@00500000 {
+				status = "okay";
+			};
+		};
+
+		isi: isi@fffb4000 {
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_isi_data_0_7 &pinctrl_isi_pck_as_mck &pinctrl_isi_power &pinctrl_isi_reset>;
+			status = "okay";
+		};
+
 		usb0: ohci@00700000 {
 			status = "okay";
 			num-ports = <2>;
@@ -165,16 +211,22 @@
 			gpios = <&pioD 30 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
 		};
+	};
+
+	pwmleds {
+		compatible = "pwm-leds";
 
 		d6 {
 			label = "d6";
-			gpios = <&pioD 0 GPIO_ACTIVE_LOW>;
+			pwms = <&pwm0 3 5000 0>;
+			max-brightness = <255>;
 			linux,default-trigger = "nand-disk";
 		};
 
 		d7 {
 			label = "d7";
-			gpios = <&pioD 31 GPIO_ACTIVE_LOW>;
+			pwms = <&pwm0 1 5000 0>;
+			max-brightness = <255>;
 			linux,default-trigger = "mmc0";
 		};
 	};
@@ -225,5 +277,9 @@
 			gpios = <&pioB 18 GPIO_ACTIVE_LOW>;
 			linux,code = <28>;
 		};
+	};
+
+	i2c@0 {
+		status = "okay";
 	};
 };

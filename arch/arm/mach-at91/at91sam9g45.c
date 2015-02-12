@@ -275,6 +275,7 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID(NULL, "fffff600.gpio", &pioC_clk),
 	CLKDEV_CON_DEV_ID(NULL, "fffff800.gpio", &pioDE_clk),
 	CLKDEV_CON_DEV_ID(NULL, "fffffa00.gpio", &pioDE_clk),
+	CLKDEV_CON_DEV_ID("ac97_clk", "fffac000.ac97", &ac97_clk),
 
 	CLKDEV_CON_ID("pioA", &pioA_clk),
 	CLKDEV_CON_ID("pioB", &pioB_clk),
@@ -283,6 +284,7 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_ID("pioE", &pioDE_clk),
 	/* Fake adc clock */
 	CLKDEV_CON_ID("adc_clk", &tsc_clk),
+	CLKDEV_CON_DEV_ID(NULL, "fffb8000.pwm", &pwm_clk),
 };
 
 static struct clk_lookup usart_clocks_lookups[] = {
@@ -376,6 +378,9 @@ static void __init at91sam9g45_initialize(void)
 {
 	arm_pm_idle = at91sam9_idle;
 	arm_pm_restart = at91sam9g45_restart;
+
+	at91_sysirq_mask_rtc(AT91SAM9G45_BASE_RTC);
+	at91_sysirq_mask_rtt(AT91SAM9G45_BASE_RTT);
 
 	/* Register GPIO subsystem */
 	at91_gpio_init(at91sam9g45_gpio, 5);

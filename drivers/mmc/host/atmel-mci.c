@@ -39,6 +39,7 @@
 
 #include <asm/io.h>
 #include <asm/unaligned.h>
+#include <linux/pinctrl/consumer.h>
 
 #include "atmel-mci-regs.h"
 
@@ -219,6 +220,13 @@ struct atmel_mci {
 	u32 (*prepare_data)(struct atmel_mci *host, struct mmc_data *data);
 	void (*submit_data)(struct atmel_mci *host, struct mmc_data *data);
 	void (*stop_transfer)(struct atmel_mci *host);
+
+#ifdef CONFIG_PM
+	/* Two pin states - default, sleep */
+	struct pinctrl		*pinctrl;
+	struct pinctrl_state	*pins_default;
+	struct pinctrl_state	*pins_sleep;
+#endif
 };
 
 /**
@@ -582,6 +590,13 @@ static void atmci_timeout_timer(unsigned long data)
 	if (host->mrq->cmd->data) {
 		host->mrq->cmd->data->error = -ETIMEDOUT;
 		host->data = NULL;
+		/*
+		 * With some SDIO modules, sometimes DMA transfer hangs. If
+		 * stop_transfer() is not called then the DMA request is not
+		 * removed, following ones are queued and never computed.
+		 */
+		if (host->state == STATE_DATA_XFER)
+			host->stop_transfer(host);
 	} else {
 		host->mrq->cmd->error = -ETIMEDOUT;
 		host->cmd = NULL;
@@ -1179,10 +1194,21 @@ static void atmci_start_request(struct atmel_mci *host,
 	iflags |= ATMCI_CMDRDY;
 	cmd = mrq->cmd;
 	cmdflags = atmci_prepare_command(slot->mmc, cmd);
-	atmci_send_command(host, cmd, cmdflags);
+
+	/*
+	 * DMA transfer should be started before sending the command to avoid
+	 * unexpected errors especially for read operations in SDIO mode.
+	 * Unfortunately, in PDC mode, command has to be sent before starting
+	 * the transfer.
+	 */
+	if (host->submit_data != &atmci_submit_data_dma)
+		atmci_send_command(host, cmd, cmdflags);
 
 	if (data)
 		host->submit_data(host, data);
+
+	if (host->submit_data == &atmci_submit_data_dma)
+		atmci_send_command(host, cmd, cmdflags);
 
 	if (mrq->stop) {
 		host->stop_cmdr = atmci_prepare_command(slot->mmc, mrq->stop);
@@ -2308,6 +2334,7 @@ static void __init atmci_get_cap(struct atmel_mci *host)
 
 	/* keep only major version number */
 	switch (version & 0xf00) {
+	case 0x600:
 	case 0x500:
 		host->caps.has_odd_clk_div = 1;
 	case 0x400:
@@ -2366,6 +2393,29 @@ static int __init atmci_probe(struct platform_device *pdev)
 	host->pdev = pdev;
 	spin_lock_init(&host->lock);
 	INIT_LIST_HEAD(&host->queue);
+
+#ifdef CONFIG_PM
+	host->pinctrl = devm_pinctrl_get(&pdev->dev);
+	if (IS_ERR(host->pinctrl)) {
+		ret = PTR_ERR(host->pinctrl);
+		goto err_pinctrl;
+	}
+
+	host->pins_default = pinctrl_lookup_state(host->pinctrl,
+						 PINCTRL_STATE_DEFAULT);
+	if (IS_ERR(host->pins_default)) {
+		dev_err(&pdev->dev, "could not get default pinstate\n");
+	} else {
+		ret = pinctrl_select_state(host->pinctrl, host->pins_default);
+		if (ret)
+			dev_dbg(&pdev->dev, "could not set default pinstate\n");
+	}
+
+	host->pins_sleep = pinctrl_lookup_state(host->pinctrl,
+					       PINCTRL_STATE_SLEEP);
+	if (IS_ERR(host->pins_sleep))
+		dev_dbg(&pdev->dev, "could not get sleep pinstate\n");
+#endif
 
 	host->mck = clk_get(&pdev->dev, "mci_clk");
 	if (IS_ERR(host->mck)) {
@@ -2466,6 +2516,7 @@ err_request_irq:
 err_ioremap:
 	clk_put(host->mck);
 err_clk_get:
+err_pinctrl:
 	kfree(host);
 	return ret;
 }
@@ -2509,6 +2560,13 @@ static int atmci_suspend(struct device *dev)
 {
 	struct atmel_mci *host = dev_get_drvdata(dev);
 	int i;
+	int ret;
+
+	if (!IS_ERR(host->pins_sleep)) {
+		ret = pinctrl_select_state(host->pinctrl, host->pins_sleep);
+		if (ret)
+			dev_err(dev, "could not set pins to sleep state\n");
+	}
 
 	 for (i = 0; i < ATMCI_MAX_NR_SLOTS; i++) {
 		struct atmel_mci_slot *slot = host->slot[i];
@@ -2540,6 +2598,13 @@ static int atmci_resume(struct device *dev)
 	struct atmel_mci *host = dev_get_drvdata(dev);
 	int i;
 	int ret = 0;
+
+	/* First go to the default state */
+	if (!IS_ERR(host->pins_default)) {
+		ret = pinctrl_select_state(host->pinctrl, host->pins_default);
+		if (ret)
+			dev_err(dev, "could not set pins to default state\n");
+	}
 
 	for (i = 0; i < ATMCI_MAX_NR_SLOTS; i++) {
 		struct atmel_mci_slot *slot = host->slot[i];

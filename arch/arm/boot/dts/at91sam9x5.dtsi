@@ -35,6 +35,7 @@
 		i2c1 = &i2c1;
 		i2c2 = &i2c2;
 		ssc0 = &ssc0;
+		pwm0 = &pwm0;
 	};
 	cpus {
 		#address-cells = <0>;
@@ -106,6 +107,45 @@
 				compatible = "atmel,at91sam9x5-tcb";
 				reg = <0xf800c000 0x100>;
 				interrupts = <17 IRQ_TYPE_LEVEL_HIGH 0>;
+			};
+
+			lcd_bus@f8038000 {
+				#address-cells = <1>;
+				#size-cells = <1>;
+				compatible = "atmel,at91sam9x5-lcd-bus", "simple-bus";
+				ranges = <0xf8038000 0xf8038000 0x4000>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&pinctrl_lcd>;
+				status = "disabled";
+
+				lcd@f8038000 {
+					compatible = "atmel,at91sam9x5-lcd";
+					reg = <0xf8038000 0x100>,
+					      <0xf8038400 0x400>;
+					interrupts = <25 IRQ_TYPE_LEVEL_HIGH 3>;
+					status = "disabled";
+				};
+
+				lcdovl1@f8038100 {
+					compatible = "atmel,at91sam9x5-lcd";
+					reg = <0xf8038100 0x100>,
+					      <0xf8038800 0x400>;
+					status = "disabled";
+				};
+
+				lcdheo1@f8038280 {
+					compatible = "atmel,at91sam9x5-heo";
+					reg = <0xf8038280 0xc0>;
+					interrupts = <25 IRQ_TYPE_LEVEL_HIGH 3>;
+					status = "disabled";
+				};
+			};
+
+			isi: isi@f8048000 {
+				compatible = "atmel,at91sam9g45-isi";
+				reg = <0xf8048000 0x4000>;
+				interrupts = <25 IRQ_TYPE_LEVEL_HIGH 5>;
+				status = "disabled";
 			};
 
 			dma0: dma-controller@ffffec00 {
@@ -190,12 +230,12 @@
 							 AT91_PIOA 8 AT91_PERIPH_A AT91_PINCTRL_NONE>;	/* PA8 periph A */
 					};
 
-					pinctrl_uart2_rts: uart2_rts-0 {
+					pinctrl_usart2_rts: usart2_rts-0 {
 						atmel,pins =
 							<AT91_PIOB 0 AT91_PERIPH_B AT91_PINCTRL_NONE>;	/* PB0 periph B */
 					};
 
-					pinctrl_uart2_cts: uart2_cts-0 {
+					pinctrl_usart2_cts: usart2_cts-0 {
 						atmel,pins =
 							<AT91_PIOB 1 AT91_PERIPH_B AT91_PINCTRL_NONE>;	/* PB1 periph B */
 					};
@@ -419,6 +459,42 @@
 					};
 				};
 
+				lcd {
+					pinctrl_lcd: lcd-0 {
+						atmel,pins =
+							<AT91_PIOC 26 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 27 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 28 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 24 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 29 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 30 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 0 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 1 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 2 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 3 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 4 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 5 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 6 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 7 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 8 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 9 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 10 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 11 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 12 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 13 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 14 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 15 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 16 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 17 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 18 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 19 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 20 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 21 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 22 AT91_PERIPH_A AT91_PINCTRL_NONE>,
+							<AT91_PIOC 23 AT91_PERIPH_A AT91_PINCTRL_NONE>;
+					};
+				};
+
 				tcb0 {
 					pinctrl_tcb0_tclk0: tcb0_tclk0-0 {
 						atmel,pins = <AT91_PIOA 24 AT91_PERIPH_A AT91_PINCTRL_NONE>;
@@ -454,6 +530,35 @@
 
 					pinctrl_tcb0_tiob2: tcb0_tiob2-0 {
 						atmel,pins = <AT91_PIOA 29 AT91_PERIPH_A AT91_PINCTRL_NONE>;
+					};
+				};
+
+				isi {
+					pinctrl_isi_data_0_7: isi-0-data-0-7 {
+					atmel,pins =
+						<AT91_PIOC 0 AT91_PERIPH_B AT91_PINCTRL_NONE    /* PC0 periph B ISI_D0, conflicts with LCDDAT0 */
+						AT91_PIOC 1 AT91_PERIPH_B AT91_PINCTRL_NONE    /* PC1 periph B ISI_D1, conflicts with LCDDAT1 */
+						AT91_PIOC 2 AT91_PERIPH_B AT91_PINCTRL_NONE    /* PC2 periph B ISI_D2, conflicts with LCDDAT2 */
+						AT91_PIOC 3 AT91_PERIPH_B AT91_PINCTRL_NONE    /* PC3 periph B ISI_D3, conflicts with LCDDAT3 */
+						AT91_PIOC 4 AT91_PERIPH_B AT91_PINCTRL_NONE    /* PC4 periph B ISI_D4, conflicts with LCDDAT4 */
+						AT91_PIOC 5 AT91_PERIPH_B AT91_PINCTRL_NONE    /* PC5 periph B ISI_D5, conflicts with LCDDAT5 */
+						AT91_PIOC 6 AT91_PERIPH_B AT91_PINCTRL_NONE    /* PC6 periph B ISI_D6, conflicts with LCDDAT6 */
+						AT91_PIOC 7 AT91_PERIPH_B AT91_PINCTRL_NONE    /* PC7 periph B ISI_D7, conflicts with LCDDAT7 */
+						AT91_PIOC 12 AT91_PERIPH_B AT91_PINCTRL_NONE   /* PC12 periph B ISI_PCK, conflicts with LCDDAT12 */
+						AT91_PIOC 14 AT91_PERIPH_B AT91_PINCTRL_NONE   /* PC14 periph B ISI_HSYNC, conflicts with LCDDAT14 */
+						AT91_PIOC 13 AT91_PERIPH_B AT91_PINCTRL_NONE>; /* PC13 periph B ISI_VSYNC, conflicts with LCDDAT13 */
+					};
+
+					pinctrl_isi_data_8_9: isi-0-data-8-9 {
+					atmel,pins =
+						<AT91_PIOC 8 AT91_PERIPH_B AT91_PINCTRL_NONE    /* PC8 periph B ISI_D8, conflicts with LCDDAT8 */
+						AT91_PIOC 9 AT91_PERIPH_B AT91_PINCTRL_NONE>;  /* PC9 periph B ISI_D9, conflicts with LCDDAT9 */
+					};
+
+					pinctrl_isi_data_10_11: isi-0-data-10-11 {
+					atmel,pins =
+						<AT91_PIOC 10 AT91_PERIPH_B AT91_PINCTRL_NONE	/* PC10 periph B ISI_D10, conflicts with LCDDAT10 */
+						AT91_PIOC 11 AT91_PERIPH_B AT91_PINCTRL_NONE>;	/* PC11 periph B ISI_D11, conflicts with LCDDAT11 */
 					};
 				};
 
@@ -542,6 +647,9 @@
 				compatible = "atmel,at91sam9g45-ssc";
 				reg = <0xf0010000 0x4000>;
 				interrupts = <28 IRQ_TYPE_LEVEL_HIGH 5>;
+				dmas = <&dma0 1 AT91_DMA_CFG_PER_ID(13)>,
+				       <&dma0 1 AT91_DMA_CFG_PER_ID(14)>;
+				dma-names = "tx", "rx";
 				pinctrl-names = "default";
 				pinctrl-0 = <&pinctrl_ssc0_tx &pinctrl_ssc0_rx>;
 				status = "disabled";
@@ -553,6 +661,7 @@
 				interrupts = <12 IRQ_TYPE_LEVEL_HIGH 0>;
 				dmas = <&dma0 1 AT91_DMA_CFG_PER_ID(0)>;
 				dma-names = "rxtx";
+				pinctrl-names = "default";
 				#address-cells = <1>;
 				#size-cells = <0>;
 				status = "disabled";
@@ -564,6 +673,7 @@
 				interrupts = <26 IRQ_TYPE_LEVEL_HIGH 0>;
 				dmas = <&dma1 1 AT91_DMA_CFG_PER_ID(0)>;
 				dma-names = "rxtx";
+				pinctrl-names = "default";
 				#address-cells = <1>;
 				#size-cells = <0>;
 				status = "disabled";
@@ -818,6 +928,14 @@
 				compatible = "atmel,at91sam9x5-rtc";
 				reg = <0xfffffeb0 0x40>;
 				interrupts = <1 IRQ_TYPE_LEVEL_HIGH 7>;
+				status = "disabled";
+			};
+
+			pwm0: pwm@f8034000 {
+				compatible = "atmel,at91sam9rl-pwm";
+				reg = <0xf8034000 0x300>;
+				interrupts = <18 IRQ_TYPE_LEVEL_HIGH 4>;
+				#pwm-cells = <3>;
 				status = "disabled";
 			};
 		};

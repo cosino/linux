@@ -35,6 +35,7 @@
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/platform_data/atmel.h>
+#include <linux/pinctrl/consumer.h>
 
 #include <linux/can/dev.h>
 #include <linux/can/error.h>
@@ -154,6 +155,13 @@ struct at91_priv {
 	struct at91_can_data *pdata;
 
 	canid_t mb0_id;
+
+#ifdef CONFIG_PM
+	/* Two pin states - default, sleep */
+	struct pinctrl		*pinctrl;
+	struct pinctrl_state	*pins_default;
+	struct pinctrl_state	*pins_sleep;
+#endif
 };
 
 static const struct at91_devtype_data at91_at91sam9263_data = {
@@ -421,7 +429,11 @@ static void at91_chip_start(struct net_device *dev)
 	at91_transceiver_switch(priv, 1);
 
 	/* enable chip */
-	at91_write(priv, AT91_MR, AT91_MR_CANEN);
+	if (priv->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)
+		reg_mr = AT91_MR_CANEN | AT91_MR_ABM;
+	else
+		reg_mr = AT91_MR_CANEN;
+	at91_write(priv, AT91_MR, reg_mr);
 
 	priv->can.state = CAN_STATE_ERROR_ACTIVE;
 
@@ -1344,7 +1356,8 @@ static int at91_can_probe(struct platform_device *pdev)
 	priv->can.bittiming_const = &at91_bittiming_const;
 	priv->can.do_set_mode = at91_set_mode;
 	priv->can.do_get_berr_counter = at91_get_berr_counter;
-	priv->can.ctrlmode_supported = CAN_CTRLMODE_3_SAMPLES;
+	priv->can.ctrlmode_supported = CAN_CTRLMODE_3_SAMPLES |
+		CAN_CTRLMODE_LISTENONLY;
 	priv->dev = dev;
 	priv->reg_base = addr;
 	priv->devtype_data = *devtype_data;
@@ -1359,6 +1372,28 @@ static int at91_can_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(&pdev->dev, dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
+
+#ifdef CONFIG_PM
+	priv->pinctrl = devm_pinctrl_get(&pdev->dev);
+	if (IS_ERR(priv->pinctrl)) {
+		err = PTR_ERR(priv->pinctrl);
+		goto exit_iounmap;
+	}
+
+	priv->pins_default = pinctrl_lookup_state(priv->pinctrl,
+						 PINCTRL_STATE_DEFAULT);
+	if (IS_ERR(priv->pins_default)) {
+		dev_err(&pdev->dev, "could not get default pinstate\n");
+	} else {
+		if (pinctrl_select_state(priv->pinctrl, priv->pins_default))
+			dev_dbg(&pdev->dev, "could not set default pinstate\n");
+	}
+
+	priv->pins_sleep = pinctrl_lookup_state(priv->pinctrl,
+					       PINCTRL_STATE_SLEEP);
+	if (IS_ERR(priv->pins_sleep))
+		dev_dbg(&pdev->dev, "could not get sleep pinstate\n");
+#endif
 
 	err = register_candev(dev);
 	if (err) {
@@ -1407,12 +1442,51 @@ static int at91_can_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int at91_can_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct net_device *dev = platform_get_drvdata(pdev);
+	struct at91_priv *priv = netdev_priv(dev);
+	int ret;
+
+	if (!IS_ERR(priv->pins_sleep)) {
+		ret = pinctrl_select_state(priv->pinctrl,
+						priv->pins_sleep);
+		if (ret)
+			dev_err(&pdev->dev, "could not set pins to sleep state\n");
+	}
+
+	return 0;
+}
+
+static int at91_can_resume(struct platform_device *pdev)
+{
+	struct net_device *dev = platform_get_drvdata(pdev);
+	struct at91_priv *priv = netdev_priv(dev);
+	int ret;
+
+	/* First go to the default state */
+	if (!IS_ERR(priv->pins_default)) {
+		ret = pinctrl_select_state(priv->pinctrl,
+						priv->pins_default);
+		if (ret)
+			dev_err(&pdev->dev, "could not set pins to default state\n");
+	}
+
+
+	return 0;
+}
+#else
+#define	at91_can_suspend	NULL
+#define at91_can_resume		NULL
+#endif
+
 static const struct platform_device_id at91_can_id_table[] = {
 	{
-		.name = "at91_can",
+		.name = "at91sam9x5_can",
 		.driver_data = (kernel_ulong_t)&at91_at91sam9x5_data,
 	}, {
-		.name = "at91sam9x5_can",
+		.name = "at91_can",
 		.driver_data = (kernel_ulong_t)&at91_at91sam9263_data,
 	}, {
 		/* sentinel */
@@ -1423,6 +1497,8 @@ MODULE_DEVICE_TABLE(platform, at91_can_id_table);
 static struct platform_driver at91_can_driver = {
 	.probe = at91_can_probe,
 	.remove = at91_can_remove,
+	.suspend = at91_can_suspend,
+	.resume = at91_can_resume,
 	.driver = {
 		.name = KBUILD_MODNAME,
 		.owner = THIS_MODULE,
