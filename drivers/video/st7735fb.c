@@ -72,7 +72,7 @@ static struct st7735_function st7735_cfg_script[] = {
 	{ ST7735_DATA, 0x0e},
 	{ ST7735_CMD, ST7735_INVOFF},
 	{ ST7735_CMD, ST7735_MADCTL},
-	{ ST7735_DATA, 0xc8},
+	{ ST7735_DATA, 0xc0},
 	{ ST7735_CMD, ST7735_COLMOD},
 	{ ST7735_DATA, 0x05},
 	{ ST7735_CMD, ST7735_CASET},
